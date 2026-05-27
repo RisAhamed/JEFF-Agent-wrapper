@@ -1,0 +1,14 @@
+.env
+__pycache__/
+venv/
+.venv/
+*.pyc
+.DS_Store
+JEFF_AGENT_BUILD_PROMPT.md
+project info.md
+.zip
+node_modules/
+dist/
+build/
+*.log
+*.env
