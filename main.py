@@ -11,14 +11,15 @@ from pydantic import BaseModel
 load_dotenv()
 
 app = FastAPI(
-    title="Jeff AI Agent API ",
+    title="Jeff AI Agent API",
     description="FastAPI endpoint wrapping the TypeScript agent.",
     version="1.0.0",
 )
 
+# CORS Configured to accept requests from juststrtup.com
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://juststrtup.com", "http://localhost", "http://127.0.0.1", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,22 +30,34 @@ class ChatRequest(BaseModel):
     mode: str
     session_id: str | None = None
 
+VALID_MODES = ["investor", "business_model", "customer", "pitch_deck", "financial"]
+
 async def stream_words(text: str):
+    # Simulated word-by-word streaming to fulfill the real-time token rendering requirement
+    # while wrapping the non-streaming TypeScript agent.
     for word in text.split(" "):
         yield word + " "
         await asyncio.sleep(0.05)
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    # Call the node script wrapped in tsx
+    # Mode Validation
+    if request.mode not in VALID_MODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid mode '{request.mode}'. Must be one of: {', '.join(VALID_MODES)}"
+        )
+
+    # Pass mode as context so the TS agent can adapt its instructions
+    contextual_message = f"[System Context: Respond in '{request.mode}' mode]\nUser Message: {request.message}"
+
     def run_node():
         process = subprocess.run(
-            "npx tsx wrapper.ts",
+            ["node", "node_modules/tsx/dist/cli.mjs", "wrapper.ts"],
             cwd=os.path.dirname(os.path.abspath(__file__)),
-            input=json.dumps({"input_as_text": request.message}),
+            input=json.dumps({"input_as_text": contextual_message}),
             capture_output=True,
-            text=True,
-            shell=True
+            text=True
         )
         return process
 
