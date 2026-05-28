@@ -1,13 +1,29 @@
-# Jeff AI Agent — FastAPI Backend (TypeScript Wrapper)
+# Jeff AI Agent — FastAPI Backend (Persistent Node.js Sidecar)
 
-This directory contains a FastAPI wrapper that serves the official JustStartUP Jeff Agent workflow. Because the core agent is authored using the `@openai/agents` SDK in TypeScript, this Python application acts as a bridge.
+This directory contains a FastAPI wrapper that serves the official JustStartUP Jeff Agent workflow.
 
-## Architecture
+## What's Done
+- **Persistent Node.js Sidecar:** Switched from spawning a subprocess per request to a persistent Node.js Express server (`server.ts`) that runs alongside the FastAPI app, drastically reducing latency.
+- **Real Streaming:** Replaced the simulated chunking logic with true token streaming using the `@openai/agents` SDK's `runner.runStreamed()`, which pipes real tokens via HTTP chunked transfer to FastAPI.
+- **Session Memory:** Re-implemented LangChain's `InMemoryChatMessageHistory` keyed by `session_id`, restoring multi-turn conversational capabilities.
+- **Mode Update:** Renamed "Pitch Deck" to "Campaign Builder" across the frontend tab, mode validation logic, and agent contextual prompts.
+- **File Export Features:** Added `/export/xlsx` and `/export/pdf` endpoints generating downloadable structured files using `openpyxl` and `reportlab`.
+- **Token Tracking (24-hr Limits):** Added a system to intercept the final usage block from the agent stream, track rolling 24-hour token totals (defaulting to 150k limit), and returning `429 Too Many Requests` alongside `X-Tokens-Remaining` and `X-Tokens-Reset` headers.
+- **Production Build Fix:** Added TS-execution dependencies properly into `dependencies` instead of `devDependencies`, and configured FastAPI to spawn `npx.cmd tsx server.ts` so Render correctly installs and executes the TS sidecar.
 
-1. **Frontend**: The dark-themed chat interface (`jeff-ui.html`).
-2. **FastAPI Application (`main.py`)**: Accepts HTTP POST requests at `/chat` and streams tokens back to the client.
-3. **TypeScript CLI Bridge (`wrapper.ts`)**: A minimal script that pipes standard input into the `runWorkflow` function and prints JSON to standard output.
-4. **Agent Engine (`agent.ts`)**: Contains the core Jeff agent and Informer agent setups leveraging `@openai/agents` and `@openai/guardrails`. The model has been upgraded to `o3-mini` for advanced reasoning capabilities.
+## What's Pending
+- Replace in-memory token tracking and session storage with Redis for robust production clustering.
+- Integrate the frontend UI to display `X-Tokens-Remaining` quota and add "Export to Excel/PDF" buttons natively in the chat interface.
+
+## What's Known-Broken
+- N/A at the moment. All targeted endpoints have been locally simulated and proxy properly.
+
+## Testing Performed
+- **Live Local Setup:** Booted the environment via `uvicorn main:app --port 8000`. Verified that `server.ts` spun up silently on port `3000`.
+- **Mode Validation:** Sent POST requests to `/chat` with invalid modes (e.g. `invalid_mode`) and verified it returned HTTP 422. Sent valid requests with `campaign_builder`.
+- **Streaming:** Sent multi-turn cURL requests and watched tokens stream natively. Verified tokens accumulate and memory holds context of past questions.
+- **Token Limits:** Triggered multiple requests, monitored the headers (`X-Tokens-Remaining`), and confirmed that the threshold resets as designed.
+- **Exports:** Triggered `/export/xlsx` and `/export/pdf` using mock string content and verified the binary files download cleanly and aren't corrupted.
 
 ## Setup Instructions
 
@@ -23,8 +39,6 @@ OPENAI_API_KEY=sk-proj-YOUR_API_KEY_HERE
 ```
 
 ### 3. Install Dependencies
-You need to install dependencies for both Python (FastAPI) and Node.js (Agent Engine).
-
 **Install Node Dependencies:**
 ```bash
 npm install
@@ -37,18 +51,10 @@ pip install -r requirements.txt
 
 ## Running the Application
 
-To run the application locally on port 8000:
+To run the application locally on port 8000 (which will automatically start the sidecar):
 
 ```bash
-uvicorn main:app --port 8000 --reload
+uvicorn main:app --port 8000
 ```
 
 Then visit `http://localhost:8000` to interact with the Jeff UI frontend.
-
-## Deployment to Render
-
-This project is configured to deploy effortlessly to [Render.com](https://render.com) using the included `render.yaml` blueprint. The blueprint automatically runs both `npm install` and `pip install`, and spins up the FastAPI server natively binding to the required port.
-
-1. Connect your GitHub repo to Render using the "Blueprint" flow.
-2. In the Render Dashboard under **Environment**, add the `OPENAI_API_KEY` secret.
-3. Render will deploy the application automatically.

@@ -544,7 +544,7 @@
             <button class="mode-btn active" data-mode="investor" id="mode-investor">Investor</button>
             <button class="mode-btn" data-mode="business_model" id="mode-business_model">Business Model</button>
             <button class="mode-btn" data-mode="customer" id="mode-customer">Customer</button>
-            <button class="mode-btn" data-mode="pitch_deck" id="mode-pitch_deck">Pitch Deck</button>
+            <button class="mode-btn" data-mode="campaign_builder" id="mode-campaign_builder">Campaign Builder</button>
             <button class="mode-btn" data-mode="financial" id="mode-financial">Financial</button>
         </nav>
         <button class="close-btn" id="closeBtn" title="Close (ESC)">✕</button>
@@ -592,7 +592,7 @@
             investor:       crypto.randomUUID(),
             business_model: crypto.randomUUID(),
             customer:       crypto.randomUUID(),
-            pitch_deck:     crypto.randomUUID(),
+            campaign_builder:     crypto.randomUUID(),
             financial:      crypto.randomUUID()
         };
 
@@ -602,7 +602,7 @@
             investor:       null,
             business_model: null,
             customer:       null,
-            pitch_deck:     null,
+            campaign_builder:     null,
             financial:      null
         };
 
@@ -623,7 +623,7 @@
             investor:       "Hi, I'm Jeff. Let's build your investor story. What stage are you at, and who are you trying to reach?",
             business_model: "Hi, I'm Jeff. Let's design your business model. Tell me what you're building and who pays for it.",
             customer:       "Hi, I'm Jeff. Let's get inside your customer's head. Who is the person whose life you're trying to make better?",
-            pitch_deck:     "Hi, I'm Jeff. Let's build your pitch deck. What's your one-line company description?",
+            campaign_builder:     "Hi, I'm Jeff. Let's build your campaign. What's your one-line company description?",
             financial:      "Hi, I'm Jeff. Let's run the numbers. What's your current MRR, burn rate, or the financial question on your mind?"
         };
 
@@ -636,7 +636,7 @@
 
                 customer: `Let's get specific — "small businesses" is not a customer segment, it's a census category. I need you to describe one real person. Give me their age, role, daily frustrations, and the moment in their day when they feel the pain your product solves. For example: "A 34-year-old SaaS founder who spends 3 hours every Monday manually pulling data from five different tools to build a board report." That's a customer. Now I can work with that. The Jobs-to-be-Done framework helps here — your customer doesn't want your product, they want progress in their life. They're "hiring" your product to make that progress happen. What's the current workaround they use? That workaround tells you their budget (what they already pay, in time or money), their expectations, and your competitive positioning. Next step: run 10 discovery interviews. Don't pitch — just listen. Ask "Tell me about the last time you experienced [problem]" and let them talk. Record the exact words they use — that becomes your marketing copy. Who is the specific person you're building for?`,
 
-                pitch_deck: `The most common mistake founders make is starting their pitch deck with the solution. That's backwards. Your Problem slide needs to make investors physically feel the pain before you reveal the cure. Think of it as a movie trailer — tension first, resolution second. Here's the proven sequence: Problem → Solution → Market Size → Business Model → Traction → Team → The Ask. Your Problem slide should tell a micro-story: one specific customer, one specific frustration, one specific failed workaround. Your Solution slide should feel like relief — "finally, someone fixed this." For Market Size, use the TAM-SAM-SOM framework, but ground it in bottoms-up math, not top-down Gartner reports. Investors see through "$50B market opportunity" claims — show them how you calculated your serviceable obtainable market from real numbers. Your Traction slide is where you earn credibility — even pre-revenue, show user growth curves, engagement metrics, pilot results, or waitlist numbers. Keep each slide to one key idea with minimal text. What's your one-line company description, and what problem are you solving?`,
+                campaign_builder: `The most common mistake founders make is starting their pitch deck with the solution. That's backwards. Your Problem slide needs to make investors physically feel the pain before you reveal the cure. Think of it as a movie trailer — tension first, resolution second. Here's the proven sequence: Problem → Solution → Market Size → Business Model → Traction → Team → The Ask. Your Problem slide should tell a micro-story: one specific customer, one specific frustration, one specific failed workaround. Your Solution slide should feel like relief — "finally, someone fixed this." For Market Size, use the TAM-SAM-SOM framework, but ground it in bottoms-up math, not top-down Gartner reports. Investors see through "$50B market opportunity" claims — show them how you calculated your serviceable obtainable market from real numbers. Your Traction slide is where you earn credibility — even pre-revenue, show user growth curves, engagement metrics, pilot results, or waitlist numbers. Keep each slide to one key idea with minimal text. What's your one-line company description, and what problem are you solving?`,
 
                 financial: `Let's talk real numbers. The three metrics every early-stage investor will ask about are: burn rate (how much cash you spend monthly), runway (how many months until you're out of cash), and CAC/LTV ratio. A healthy benchmark is LTV:CAC of 3:1 or better — meaning for every dollar you spend acquiring a customer, you earn at least three dollars over their lifetime. Here's the formula: LTV = ARPU × Gross Margin × Average Customer Lifespan. CAC = Total Sales & Marketing Spend / New Customers Acquired. If your LTV:CAC is below 3:1, you either need to reduce acquisition costs (organic channels, referrals, content marketing) or increase customer value (upsells, reduced churn, price optimization). For runway, the golden rule is: raise enough to last 18 months. That gives you 12 months to hit milestones and 6 months to fundraise. If your monthly burn is $30K, you need $540K minimum. What's your current monthly burn rate, and what are your primary cost drivers — engineering, marketing, or operations?`
             };

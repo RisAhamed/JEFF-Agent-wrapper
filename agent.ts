@@ -30,7 +30,7 @@ const imageGeneration = imageGenerationTool({
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Guardrails definitions
-const guardrailsConfig = {
+export const guardrailsConfig = {
   guardrails: [
     { name: "Jailbreak", config: { model: "gpt-4.1-mini", confidence_threshold: 0.7 } },
     { name: "NSFW Text", config: { model: "gpt-4.1-mini", confidence_threshold: 0.7 } },
@@ -39,7 +39,7 @@ const guardrailsConfig = {
     { name: "Moderation", config: { categories: ["sexual", "sexual/minors", "hate", "hate/threatening", "harassment/threatening", "self-harm/instructions", "violence/graphic", "illicit/violent"] } }
   ]
 };
-const context = { guardrailLlm: client };
+export const context = { guardrailLlm: client };
 
 function guardrailsHasTripwire(results: any[]): boolean {
     return (results ?? []).some((r) => r?.tripwireTriggered === true);
@@ -75,7 +75,7 @@ async function scrubWorkflowInput(workflow: any, inputKey: string, piiOnly: any)
     workflow[inputKey] = getGuardrailSafeText(res, value);
 }
 
-async function runAndApplyGuardrails(inputText: string, config: any, history: any[], workflow: any) {
+export async function runAndApplyGuardrails(inputText: string, config: any, history: any[], workflow: any) {
     const guardrails = Array.isArray(config?.guardrails) ? config.guardrails : [];
     const results = await runGuardrails(inputText, config, context, true);
     const shouldMaskPII = guardrails.find((g) => (g?.name === "Contains PII") && g?.config && g.config.block === false);
@@ -114,7 +114,7 @@ function buildGuardrailFailOutput(results: any[]) {
 // separately by Raj on the OpenAI platform.
 // ─────────────────────────────────────────────
 
-const jeff = new Agent({
+export const jeff = new Agent({
   name: "Jeff",
   instructions: "[REDACTED — CONFIGURED BY RAJ ON OPENAI PLATFORM]",
   model: "o3-mini",
@@ -131,7 +131,7 @@ const jeff = new Agent({
   }
 });
 
-const informer = new Agent({
+export const informer = new Agent({
   name: "Informer",
   instructions: "[REDACTED — CONFIGURED BY RAJ ON OPENAI PLATFORM]",
   model: "gpt-4o",
