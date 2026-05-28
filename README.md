@@ -1,60 +1,140 @@
-# Jeff AI Agent — FastAPI Backend (Persistent Node.js Sidecar)
+# Jeff AI Agent FastAPI Wrapper
 
-This directory contains a FastAPI wrapper that serves the official JustStartUP Jeff Agent workflow.
+This `day-1` app wraps the TypeScript Jeff agent workflow with FastAPI for the WordPress integration.
 
-## What's Done
-- **Persistent Node.js Sidecar:** Switched from spawning a subprocess per request to a persistent Node.js Express server (`server.ts`) that runs alongside the FastAPI app, drastically reducing latency.
-- **Real Streaming:** Replaced the simulated chunking logic with true token streaming using the `@openai/agents` SDK's `runner.runStreamed()`, which pipes real tokens via HTTP chunked transfer to FastAPI.
-- **Session Memory:** Re-implemented LangChain's `InMemoryChatMessageHistory` keyed by `session_id`, restoring multi-turn conversational capabilities.
-- **Mode Update:** Renamed "Pitch Deck" to "Campaign Builder" across the frontend tab, mode validation logic, and agent contextual prompts.
-- **File Export Features:** Added `/export/xlsx` and `/export/pdf` endpoints generating downloadable structured files using `openpyxl` and `reportlab`.
-- **Token Tracking (24-hr Limits):** Added a system to intercept the final usage block from the agent stream, track rolling 24-hour token totals (defaulting to 150k limit), and returning `429 Too Many Requests` alongside `X-Tokens-Remaining` and `X-Tokens-Reset` headers.
-- **Production Build Fix:** Added TS-execution dependencies properly into `dependencies` instead of `devDependencies`, and configured FastAPI to spawn `npx.cmd tsx server.ts` so Render correctly installs and executes the TS sidecar.
+## What Is Done
 
-## What's Pending
-- Replace in-memory token tracking and session storage with Redis for robust production clustering.
-- Integrate the frontend UI to display `X-Tokens-Remaining` quota and add "Export to Excel/PDF" buttons natively in the chat interface.
+- `POST /chat` validates mode, restores per-session chat history, checks guardrails, routes to Jeff or Informer, and returns a `text/plain` streaming response.
+- The Node agent runs as a persistent sidecar instead of a subprocess per request.
+- TypeScript is compiled at build time into `dist/`, so Render no longer depends on runtime `tsx`.
+- Streaming uses `@openai/agents` streaming events from the sidecar and forwards real token deltas through FastAPI.
+- `pitch_deck` has been replaced with `campaign_builder` in validation, UI tabs, welcome text, and mode context.
+- `POST /export/xlsx` and `POST /export/pdf` generate files server-side from structured payloads.
+- A rolling 24-hour in-memory token cap is enforced per `user_id` or `session_id`, defaulting to `150000`.
+- CORS is restricted to JustStartUP domains plus local development origins.
+- Jeff and Informer models are configurable with `JEFF_AGENT_MODEL` and `INFORMER_AGENT_MODEL`; defaults are set to `gpt-3.5-turbo` so the current unverified org can return working chat output.
 
-## What's Known-Broken
-- N/A at the moment. All targeted endpoints have been locally simulated and proxy properly.
+## Pending
 
-## Testing Performed
-- **Live Local Setup:** Booted the environment via `uvicorn main:app --port 8000`. Verified that `server.ts` spun up silently on port `3000`.
-- **Mode Validation:** Sent POST requests to `/chat` with invalid modes (e.g. `invalid_mode`) and verified it returned HTTP 422. Sent valid requests with `campaign_builder`.
-- **Streaming:** Sent multi-turn cURL requests and watched tokens stream natively. Verified tokens accumulate and memory holds context of past questions.
-- **Token Limits:** Triggered multiple requests, monitored the headers (`X-Tokens-Remaining`), and confirmed that the threshold resets as designed.
-- **Exports:** Triggered `/export/xlsx` and `/export/pdf` using mock string content and verified the binary files download cleanly and aren't corrupted.
+- Replace in-memory session and token stores with Redis before production scale-out or multi-instance Render deployment.
+- Deploy the updated Render blueprint and paste the final public URL into the submission.
+- Raj still owns the Campaign Builder platform/system prompt. The UI currently sends `mode: "campaign_builder"` plus a lightweight mode context saying the user wants campaign brief, launch messaging, channel plan, and content-outline help.
 
-## Setup Instructions
+## Known Broken
 
-### 1. Prerequisites
-- **Node.js** (v18+) & **npm**
-- **Python** (3.11+)
+- Token quota is process-local until Redis is added. A Render restart clears counters and session memory.
+- Response headers show quota remaining before the current streamed run. The run usage is recorded for the next request after streaming completes.
+- Hosted tools are disabled in the default local agent runtime because the current organization rejects the previous hosted-tool/model combinations. Re-enable tools after model/tool access is verified.
 
-### 2. Environment Variables
-Create a `.env` file in this directory and populate it with your OpenAI API key:
+## Environment Variables
+
+Copy `.env.example` to `.env` locally:
 
 ```env
-OPENAI_API_KEY=sk-proj-YOUR_API_KEY_HERE
+OPENAI_API_KEY=
+JEFF_WORKFLOW_ID=
+JEFF_AGENT_MODEL=gpt-3.5-turbo
+INFORMER_AGENT_MODEL=gpt-3.5-turbo
+CORS_ORIGINS=https://juststrtup.com,http://juststrtup.com,https://www.juststrtup.com
+PRO_TOKEN_LIMIT=150000
+NODE_SIDECAR_URL=http://127.0.0.1:3000
+SIDECAR_PORT=3000
+START_NODE_SIDECAR=true
+NODE_VERSION=22.16.0
 ```
 
-### 3. Install Dependencies
-**Install Node Dependencies:**
+Do not commit real API keys.
+
+## Local Setup
+
 ```bash
 npm install
+npm run build
+pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-**Install Python Dependencies:**
+FastAPI starts the compiled Node sidecar automatically. Open `http://127.0.0.1:8000` for the full-screen Jeff UI.
+
+## API Contract
+
+```http
+POST /chat
+Content-Type: application/json
+```
+
+```json
+{
+  "message": "string",
+  "mode": "investor | business_model | customer | campaign_builder | financial",
+  "session_id": "string",
+  "user_id": "optional string"
+}
+```
+
+Response: `text/plain` chunked stream.
+
+Quota headers:
+
+- `X-Tokens-Limit`
+- `X-Tokens-Remaining`
+- `X-Tokens-Reset`
+- `Retry-After` on `429`
+
+Export endpoints:
+
+- `POST /export/xlsx`
+- `POST /export/pdf`
+
+Both accept:
+
+```json
+{
+  "payload": { "title": "Campaign Brief", "rows": [] },
+  "filename": "campaign-brief",
+  "title": "Campaign Brief"
+}
+```
+
+## Render Deployment
+
+The included `render.yaml` runs:
+
 ```bash
 pip install -r requirements.txt
+npm ci --include=dev
+npm run build
 ```
 
-## Running the Application
-
-To run the application locally on port 8000 (which will automatically start the sidecar):
+Start command:
 
 ```bash
-uvicorn main:app --port 8000
+uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
 
-Then visit `http://localhost:8000` to interact with the Jeff UI frontend.
+Set these Render environment variables:
+
+- `OPENAI_API_KEY`
+- `JEFF_WORKFLOW_ID` if available
+- `JEFF_AGENT_MODEL`
+- `INFORMER_AGENT_MODEL`
+- `CORS_ORIGINS`
+- `PRO_TOKEN_LIMIT`
+- `NODE_VERSION=22.16.0`
+
+## Tested
+
+- `npm run build`
+- `python -m py_compile main.py test_endpoints.py`
+- Local smoke test with the workspace venv:
+  - `GET /health`
+  - invalid `POST /chat` returns `422`
+  - `POST /export/xlsx` returns an Excel file
+  - `POST /export/pdf` returns a PDF file
+- Browser UI smoke test with `npx agent-browser`:
+  - opened `http://127.0.0.1:8000`
+  - selected `Campaign Builder`
+  - sent a message
+  - received a visible Jeff response plus Excel/PDF buttons
+
+I did not redeploy Render from this machine, and I did not claim the live `/chat` URL is fixed until the updated blueprint is deployed.

@@ -1,109 +1,142 @@
-import express from 'express';
 import cors from 'cors';
+import dotenv from 'dotenv';
+import express from 'express';
 import { AgentInputItem, Runner, withTrace } from '@openai/agents';
 import { guardrailsConfig, runAndApplyGuardrails, jeff, informer } from './agent';
-import dotenv from 'dotenv';
+
 dotenv.config();
+dotenv.config({ path: '../.env', override: false });
 
 const app = express();
+const port = Number(process.env.SIDECAR_PORT || 3000);
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
-const PORT = 3000;
+type StreamEvent =
+  | { type: 'token'; text: string }
+  | { type: 'usage'; usage: Record<string, unknown> }
+  | { type: 'error'; message: string };
 
-app.post('/chat', async (req, res) => {
-    try {
-        const { messages, mode } = req.body;
-        
-        if (!messages || !Array.isArray(messages) || messages.length === 0) {
-            return res.status(400).json({ error: 'messages array is required' });
-        }
+const modeLabels: Record<string, string> = {
+  investor: 'Investor',
+  business_model: 'Business Model',
+  customer: 'Customer',
+  campaign_builder: 'Campaign Builder',
+  financial: 'Financial',
+};
 
-        // Setup streaming headers
-        res.setHeader('Content-Type', 'text/plain');
-        res.setHeader('Transfer-Encoding', 'chunked');
-        res.setHeader('Cache-Control', 'no-cache');
+function writeEvent(res: express.Response, event: StreamEvent) {
+  res.write(`${JSON.stringify(event)}\n`);
+}
 
-        await withTrace("Jeff Flagship Suite", async () => {
-            const runner = new Runner({
-                traceMetadata: {
-                    __trace_source__: "agent-builder",
-                    workflow_id: process.env.JEFF_WORKFLOW_ID
-                }
-            });
+function getMessageText(message: AgentInputItem | undefined): string {
+  const content = (message as any)?.content;
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part) => part?.type === 'input_text' && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('');
+}
 
-            // Extract the latest user message text
-            const lastMessage = messages[messages.length - 1];
-            let guardrailsInputText = "";
-            if (lastMessage && lastMessage.content) {
-                if (Array.isArray(lastMessage.content)) {
-                    for (const part of lastMessage.content) {
-                        if (part.type === "input_text") guardrailsInputText += part.text;
-                    }
-                } else if (typeof lastMessage.content === 'string') {
-                    guardrailsInputText = lastMessage.content;
-                }
-            }
+function applyModeContext(messages: AgentInputItem[], mode: string) {
+  const lastMessage = messages[messages.length - 1] as any;
+  const modeLabel = modeLabels[mode] || mode;
+  const campaignNote =
+    mode === 'campaign_builder'
+      ? 'The UI is sending Campaign Builder mode for campaign brief, launch messaging, channel plan, and content-outline help. Raj owns the platform-level agent instructions for this mode.'
+      : '';
 
-            const workflow = { input_as_text: guardrailsInputText };
-            
-            // 1. Guardrails check
-            const { hasTripwire } = await runAndApplyGuardrails(guardrailsInputText, guardrailsConfig, messages, workflow);
+  if (!lastMessage || !Array.isArray(lastMessage.content)) return;
+  const textPart = lastMessage.content.find((part: any) => part?.type === 'input_text' && typeof part.text === 'string');
+  if (!textPart) return;
 
-            let activeAgent = jeff;
-            if (hasTripwire) {
-                activeAgent = informer;
-            } else {
-                // If it's Jeff, append the mode to the last message context to fulfill the requirement
-                // Note: since it's the last message, modifying it instructs Jeff for this turn.
-                if (Array.isArray(lastMessage.content)) {
-                    const textPart = lastMessage.content.find((p: any) => p.type === 'input_text');
-                    if (textPart) {
-                        textPart.text = `[System Context: Respond in '${mode}' mode]\nUser Message: ${textPart.text}`;
-                    }
-                }
-            }
+  textPart.text = [
+    `[Mode Context: ${modeLabel}]`,
+    campaignNote,
+    `User Message: ${textPart.text}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
 
-            // 2. Stream execution
-            const run = await runner.runStreamed(activeAgent, messages);
-            
-            for await (const chunk of run) {
-                // Determine how `@openai/agents` emits text delta events
-                if (chunk.type === 'messageDelta' && chunk.messageDelta?.content) {
-                    for (const content of chunk.messageDelta.content) {
-                        if (content.type === 'text_delta' && content.textDelta) {
-                            res.write(content.textDelta);
-                        }
-                    }
-                } else if (chunk.type === 'text_delta' && chunk.text_delta) {
-                    res.write(chunk.text_delta);
-                } else if (chunk.type === 'textDelta' && chunk.textDelta) {
-                    res.write(chunk.textDelta);
-                } else if (chunk.delta) { // fallback
-                    if (typeof chunk.delta === 'string') {
-                        res.write(chunk.delta);
-                    } else if (chunk.delta.text) {
-                        res.write(chunk.delta.text);
-                    }
-                }
-            }
+function usageToWireValue(usage: any) {
+  return {
+    requests: usage?.requests ?? 0,
+    inputTokens: usage?.inputTokens ?? usage?.input_tokens ?? 0,
+    outputTokens: usage?.outputTokens ?? usage?.output_tokens ?? 0,
+    totalTokens: usage?.totalTokens ?? usage?.total_tokens ?? 0,
+  };
+}
 
-            const finalResult = await run.finalResult();
-            const usage = finalResult?.usage || { prompt_tokens: 0, completion_tokens: 0 };
-            res.write(`\n\n__USAGE__:${JSON.stringify(usage)}`);
-        });
-        
-        res.end();
-    } catch (err: any) {
-        console.error("Error in /chat:", err);
-        if (!res.headersSent) {
-            res.status(500).json({ error: err.message || String(err) });
-        } else {
-            res.end();
-        }
-    }
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', service: 'jeff-node-sidecar' });
 });
 
-app.listen(PORT, () => {
-    console.log(`Node Agent Sidecar running on port ${PORT}`);
+app.post('/chat', async (req, res) => {
+  const { messages, mode } = req.body;
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'messages array is required' });
+  }
+  if (!mode || !modeLabels[mode]) {
+    return res.status(422).json({ error: `invalid mode: ${mode}` });
+  }
+
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Transfer-Encoding', 'chunked');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  try {
+    await withTrace('Jeff Flagship Suite', async () => {
+      const runner = new Runner({
+        traceMetadata: {
+          __trace_source__: 'agent-builder',
+          workflow_id: process.env.JEFF_WORKFLOW_ID || '',
+        },
+      });
+
+      const conversation = messages as AgentInputItem[];
+      const latestUserText = getMessageText(conversation[conversation.length - 1]);
+      const workflow = { input_as_text: latestUserText };
+
+      const { hasTripwire } = await runAndApplyGuardrails(
+        latestUserText,
+        guardrailsConfig,
+        conversation,
+        workflow,
+      );
+
+      const activeAgent = hasTripwire ? informer : jeff;
+      if (!hasTripwire) {
+        applyModeContext(conversation, mode);
+      }
+
+      const streamedRun = await runner.run(activeAgent, conversation, { stream: true });
+      const textStream = streamedRun.toTextStream({ compatibleWithNodeStreams: true });
+
+      for await (const chunk of textStream) {
+        const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+        if (text) writeEvent(res, { type: 'token', text });
+      }
+
+      await streamedRun.completed;
+      writeEvent(res, { type: 'usage', usage: usageToWireValue(streamedRun.state.usage) });
+    });
+  } catch (err: any) {
+    const message = err?.message || String(err);
+    console.error('Error in /chat:', err);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: message });
+    }
+    writeEvent(res, { type: 'error', message });
+  } finally {
+    res.end();
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Node Agent Sidecar running on port ${port}`);
 });

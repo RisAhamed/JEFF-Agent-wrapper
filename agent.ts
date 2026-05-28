@@ -1,7 +1,18 @@
 import { webSearchTool, codeInterpreterTool, imageGenerationTool, Agent, AgentInputItem, Runner, withTrace } from "@openai/agents";
 import { OpenAI } from "openai";
 import { runGuardrails } from "@openai/guardrails";
+import dotenv from "dotenv";
 
+dotenv.config();
+dotenv.config({ path: "../.env", override: false });
+
+const rawOpenAiKey = process.env.OPENAI_API_KEY?.trim();
+if (rawOpenAiKey) {
+  const duplicatedKeyStart = rawOpenAiKey.indexOf("sk-", 3);
+  process.env.OPENAI_API_KEY = duplicatedKeyStart > 0
+    ? rawOpenAiKey.slice(0, duplicatedKeyStart)
+    : rawOpenAiKey;
+}
 
 // Tool definitions
 const webSearchPreview = webSearchTool({
@@ -92,7 +103,7 @@ export async function runAndApplyGuardrails(inputText: string, config: any, hist
 
 function buildGuardrailFailOutput(results: any[]) {
     const get = (name: string) => (results ?? []).find((r: any) => ((r?.info?.guardrail_name ?? r?.info?.guardrailName) === name));
-    const pii = get("Contains PII"), mod = get("Moderation"), jb = get("Jailbreak"), hal = get("Hallucination Detection"), nsfw = get("NSFW Text"), url = get("URL Filter"), custom = get("Custom Prompt Check"), pid = get("Prompt Injection Detection"), piiCounts = Object.entries(pii?.info?.detected_entities ?? {}).filter(([, v]) => Array.isArray(v)).map(([k, v]) => k + ":" + v.length), conf = jb?.info?.confidence;
+    const pii = get("Contains PII"), mod = get("Moderation"), jb = get("Jailbreak"), hal = get("Hallucination Detection"), nsfw = get("NSFW Text"), url = get("URL Filter"), custom = get("Custom Prompt Check"), pid = get("Prompt Injection Detection"), piiCounts = Object.entries(pii?.info?.detected_entities ?? {}).filter(([, v]) => Array.isArray(v)).map(([k, v]) => k + ":" + (v as any[]).length), conf = jb?.info?.confidence;
     return {
         pii: { failed: (piiCounts.length > 0) || pii?.tripwireTriggered === true, detected_counts: piiCounts },
         moderation: { failed: mod?.tripwireTriggered === true || ((mod?.info?.flagged_categories ?? []).length > 0), flagged_categories: mod?.info?.flagged_categories },
@@ -117,16 +128,9 @@ function buildGuardrailFailOutput(results: any[]) {
 export const jeff = new Agent({
   name: "Jeff",
   instructions: "[REDACTED — CONFIGURED BY RAJ ON OPENAI PLATFORM]",
-  model: "o3-mini",
-  tools: [
-    webSearchPreview,
-    codeInterpreter,
-    imageGeneration
-  ],
+  model: process.env.JEFF_AGENT_MODEL || "gpt-3.5-turbo",
+  tools: [],
   modelSettings: {
-    reasoning: {
-      effort: "medium"
-    },
     store: true
   }
 });
@@ -134,7 +138,7 @@ export const jeff = new Agent({
 export const informer = new Agent({
   name: "Informer",
   instructions: "[REDACTED — CONFIGURED BY RAJ ON OPENAI PLATFORM]",
-  model: "gpt-4o",
+  model: process.env.INFORMER_AGENT_MODEL || "gpt-3.5-turbo",
   modelSettings: {
     temperature: 1,
     topP: 1,

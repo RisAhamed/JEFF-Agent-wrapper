@@ -7,7 +7,8 @@ services:
 
     buildCommand: |
       pip install -r requirements.txt
-      npm install
+      npm ci --include=dev
+      npm run build
 
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
 
@@ -18,5 +19,21 @@ services:
     envVars:
       - key: OPENAI_API_KEY
         sync: false
+      - key: JEFF_WORKFLOW_ID
+        sync: false
+      - key: JEFF_AGENT_MODEL
+        value: "gpt-3.5-turbo"
+      - key: INFORMER_AGENT_MODEL
+        value: "gpt-3.5-turbo"
+      - key: CORS_ORIGINS
+        value: "https://juststrtup.com,http://juststrtup.com,https://www.juststrtup.com,https://juststartup.com,http://juststartup.com,https://www.juststartup.com"
+      - key: PRO_TOKEN_LIMIT
+        value: "150000"
+      - key: SIDECAR_PORT
+        value: "3000"
+      - key: START_NODE_SIDECAR
+        value: "true"
       - key: PYTHON_VERSION
         value: "3.11.0"
+      - key: NODE_VERSION
+        value: "22.16.0"

@@ -156,6 +156,16 @@
             margin-left: 2px;
         }
 
+        .quota-status {
+            font-size: 12px;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 7px 10px;
+            background: var(--surface);
+            white-space: nowrap;
+        }
+
         .mode-nav {
             display: flex;
             gap: 8px;
@@ -397,6 +407,30 @@
             text-decoration: underline;
         }
 
+        .message-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .export-btn {
+            border: 1px solid var(--border);
+            background: var(--surface-alt);
+            color: var(--text-muted);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-family: 'Rosario', sans-serif;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .export-btn:hover {
+            color: var(--text-primary);
+            border-color: rgba(255, 255, 255, 0.2);
+            background: #222;
+        }
+
         /* ── Typing Indicator ────────────────────────────────────── */
         .typing-indicator {
             display: flex;
@@ -526,6 +560,10 @@
             .header-brand .subtitle {
                 display: none;
             }
+
+            .quota-status {
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -547,11 +585,12 @@
             <button class="mode-btn" data-mode="campaign_builder" id="mode-campaign_builder">Campaign Builder</button>
             <button class="mode-btn" data-mode="financial" id="mode-financial">Financial</button>
         </nav>
+        <div class="quota-status" id="quotaStatus">Quota loading...</div>
         <button class="close-btn" id="closeBtn" title="Close (ESC)">✕</button>
     </header>
 
     <!-- ── Close Overlay ───────────────────────────────────────── -->
-    <div class="close-overlay" id="closeOverlay">
+    <div class="close-overlay" id="closeOverlay" aria-hidden="true">
         <h2>Session Ended</h2>
         <p>Thanks for chatting with Jeff. Your conversation has been cleared.</p>
         <button id="reopenBtn">Reopen Jeff</button>
@@ -580,7 +619,8 @@
         const API_BASE_URL = window.location.hostname === 'localhost' && window.location.port === '8080'
             ? 'http://localhost:8000'
             : window.location.origin;
-        let useBackend = true; // Attempt real backend; auto-fallback to mock on failure
+        const userId = localStorage.getItem('jeff_user_id') || crypto.randomUUID();
+        localStorage.setItem('jeff_user_id', userId);
 
         // ── State ────────────────────────────────────────────────────────────
         let currentMode = 'investor';
@@ -617,6 +657,7 @@
         const closeBtn     = document.getElementById('closeBtn');
         const closeOverlay = document.getElementById('closeOverlay');
         const reopenBtn    = document.getElementById('reopenBtn');
+        const quotaStatus  = document.getElementById('quotaStatus');
 
         // ── Welcome Messages (per mode) ─────────────────────────────────────
         const welcomeMessages = {
@@ -627,7 +668,7 @@
             financial:      "Hi, I'm Jeff. Let's run the numbers. What's your current MRR, burn rate, or the financial question on your mind?"
         };
 
-        // ── Mock Responses (fallback when backend is unavailable) ────────────
+        // ── Mock Responses (local demo copy, not used for production chat) ───
         function getMockResponse(mode, message) {
             const responses = {
                 investor: `Great question. When approaching investor meetings, especially at the early stage, you need to lead with the narrative, not the numbers. Investors at pre-seed and seed are buying into you and your vision — traction is a bonus, not a prerequisite. Start by framing the problem as a burning pain point that a specific customer segment experiences daily. Then position your solution as the inevitable fix. If you have any early signals — waitlist sign-ups, LOIs, pilot customers, even strong survey data — weave those in as social proof. Consider whether a SAFE note or a priced round makes more sense for your stage. SAFEs are faster, cheaper, and founder-friendly, but some angels prefer priced rounds for clarity on ownership. One more thing: warm intros convert at 10x the rate of cold outreach. Map your network, find second-degree connections to target investors, and ask for specific, personal introductions. What's your current fundraising target, and have you identified your lead investor profile yet?`,
@@ -636,7 +677,7 @@
 
                 customer: `Let's get specific — "small businesses" is not a customer segment, it's a census category. I need you to describe one real person. Give me their age, role, daily frustrations, and the moment in their day when they feel the pain your product solves. For example: "A 34-year-old SaaS founder who spends 3 hours every Monday manually pulling data from five different tools to build a board report." That's a customer. Now I can work with that. The Jobs-to-be-Done framework helps here — your customer doesn't want your product, they want progress in their life. They're "hiring" your product to make that progress happen. What's the current workaround they use? That workaround tells you their budget (what they already pay, in time or money), their expectations, and your competitive positioning. Next step: run 10 discovery interviews. Don't pitch — just listen. Ask "Tell me about the last time you experienced [problem]" and let them talk. Record the exact words they use — that becomes your marketing copy. Who is the specific person you're building for?`,
 
-                campaign_builder: `The most common mistake founders make is starting their pitch deck with the solution. That's backwards. Your Problem slide needs to make investors physically feel the pain before you reveal the cure. Think of it as a movie trailer — tension first, resolution second. Here's the proven sequence: Problem → Solution → Market Size → Business Model → Traction → Team → The Ask. Your Problem slide should tell a micro-story: one specific customer, one specific frustration, one specific failed workaround. Your Solution slide should feel like relief — "finally, someone fixed this." For Market Size, use the TAM-SAM-SOM framework, but ground it in bottoms-up math, not top-down Gartner reports. Investors see through "$50B market opportunity" claims — show them how you calculated your serviceable obtainable market from real numbers. Your Traction slide is where you earn credibility — even pre-revenue, show user growth curves, engagement metrics, pilot results, or waitlist numbers. Keep each slide to one key idea with minimal text. What's your one-line company description, and what problem are you solving?`,
+                campaign_builder: `A strong startup campaign starts with one clear audience, one urgent pain, and one action you want them to take next. Before choosing channels, define the campaign promise in a single sentence: who it helps, what changes for them, and why now. Then build the campaign around proof points, objections, hooks, and a simple conversion path. For launch planning, I would map this into audience segments, core message, channel mix, content angles, landing-page sections, and follow-up sequence. What's your one-line company description, and what outcome should this campaign drive?`,
 
                 financial: `Let's talk real numbers. The three metrics every early-stage investor will ask about are: burn rate (how much cash you spend monthly), runway (how many months until you're out of cash), and CAC/LTV ratio. A healthy benchmark is LTV:CAC of 3:1 or better — meaning for every dollar you spend acquiring a customer, you earn at least three dollars over their lifetime. Here's the formula: LTV = ARPU × Gross Margin × Average Customer Lifespan. CAC = Total Sales & Marketing Spend / New Customers Acquired. If your LTV:CAC is below 3:1, you either need to reduce acquisition costs (organic channels, referrals, content marketing) or increase customer value (upsells, reduced churn, price optimization). For runway, the golden rule is: raise enough to last 18 months. That gives you 12 months to hit milestones and 6 months to fundraise. If your monthly burn is $30K, you need $540K minimum. What's your current monthly burn rate, and what are your primary cost drivers — engineering, marketing, or operations?`
             };
@@ -646,7 +687,7 @@
 
         // ── Message Rendering ───────────────────────────────────────────────
 
-        function addJeffMessage(text) {
+        function addJeffMessage(text, allowExport = false) {
             const msg = document.createElement('div');
             msg.className = 'message jeff';
             msg.innerHTML = `
@@ -654,6 +695,7 @@
                 <div class="message-bubble">${renderMarkdown(text)}</div>
             `;
             chatArea.appendChild(msg);
+            if (allowExport) attachExportActions(msg, text);
             scrollToBottom();
             return msg;
         }
@@ -713,7 +755,76 @@
             return escapeHTML(text);
         }
 
-        // ── Backend Streaming (real Groq API via FastAPI) ────────────────────
+        function updateQuotaFromHeaders(headers) {
+            const remaining = headers.get('X-Tokens-Remaining');
+            const limit = headers.get('X-Tokens-Limit');
+            const reset = headers.get('X-Tokens-Reset');
+
+            if (!remaining || !limit) {
+                quotaStatus.textContent = 'Quota unavailable';
+                return;
+            }
+
+            const resetDate = reset ? new Date(Number(reset) * 1000) : null;
+            const resetLabel = resetDate && !Number.isNaN(resetDate.getTime())
+                ? resetDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'later';
+            quotaStatus.textContent = `${Number(remaining).toLocaleString()} / ${Number(limit).toLocaleString()} tokens left · resets ${resetLabel}`;
+        }
+
+        function structuredPayloadFromText(text) {
+            const jsonBlock = text.match(/```json\s*([\s\S]*?)```/i);
+            if (jsonBlock) {
+                try { return JSON.parse(jsonBlock[1]); } catch (e) { /* fall through */ }
+            }
+            return { content: text, mode: currentMode, exported_at: new Date().toISOString() };
+        }
+
+        async function downloadExport(endpoint, extension, text) {
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    payload: structuredPayloadFromText(text),
+                    content: text,
+                    filename: `jeff-${currentMode}-${Date.now()}`,
+                    title: `Jeff ${currentMode.replaceAll('_', ' ')} export`
+                })
+            });
+
+            if (!response.ok) throw new Error(`Export failed: HTTP ${response.status}`);
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `jeff-${currentMode}.${extension}`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        function attachExportActions(msg, text) {
+            if (!msg) return;
+            msg.dataset.exportText = text;
+            if (msg.querySelector('.message-actions')) return;
+
+            const actions = document.createElement('div');
+            actions.className = 'message-actions';
+            actions.innerHTML = `
+                <button class="export-btn" type="button" data-export="xlsx">Excel</button>
+                <button class="export-btn" type="button" data-export="pdf">PDF</button>
+            `;
+
+            msg.appendChild(actions);
+        }
+
+        function showBackendError(bubble, message) {
+            bubble.innerHTML = renderMarkdown(`Jeff is unavailable right now.\n\n${message}`);
+        }
+
+        // ── Backend Streaming (OpenAI Agents via FastAPI) ────────────────────
 
         async function streamFromBackend(mode, message, bubble) {
             try {
@@ -723,11 +834,18 @@
                     body: JSON.stringify({
                         message: message,
                         mode: mode,
-                        session_id: sessionId  // Server-side LangChain memory
+                        session_id: sessionId,
+                        user_id: userId
                     })
                 });
 
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                updateQuotaFromHeaders(response.headers);
+
+                if (!response.ok) {
+                    const retryAfter = response.headers.get('Retry-After');
+                    const detail = await response.text();
+                    throw new Error(retryAfter ? `HTTP ${response.status}. Try again in ${retryAfter} seconds. ${detail}` : `HTTP ${response.status}. ${detail}`);
+                }
 
                 // Capture session_id from server (in case server generated one)
                 const serverSessionId = response.headers.get('X-Session-Id');
@@ -748,11 +866,13 @@
 
                 // Render final Markdown after streaming completes
                 bubble.innerHTML = renderMarkdown(fullResponse);
+                attachExportActions(bubble.closest('.message'), fullResponse);
 
                 // Memory is saved server-side by LangChain — no client tracking needed
                 return true;
             } catch (err) {
-                console.warn('Backend unavailable, falling back to mock:', err.message);
+                console.warn('Backend unavailable:', err.message);
+                showBackendError(bubble, err.message);
                 return false;
             }
         }
@@ -803,15 +923,7 @@
             chatArea.appendChild(msg);
             const bubble = msg.querySelector('.message-bubble');
 
-            // Try backend first, fallback to mock
-            if (useBackend) {
-                const success = await streamFromBackend(mode, message, bubble);
-                if (!success) {
-                    await streamMockResponse(mode, message, bubble);
-                }
-            } else {
-                await streamMockResponse(mode, message, bubble);
-            }
+            await streamFromBackend(mode, message, bubble);
 
             isStreaming = false;
             inputField.disabled = false;
@@ -873,16 +985,14 @@
 
         async function closeInterface() {
             // Clear ALL server-side LangChain sessions
-            if (useBackend) {
-                for (const sid of Object.values(modeSessions)) {
-                    try {
-                        await fetch(`${API_BASE_URL}/clear`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ session_id: sid })
-                        });
-                    } catch (e) { /* no-op */ }
-                }
+            for (const sid of Object.values(modeSessions)) {
+                try {
+                    await fetch(`${API_BASE_URL}/clear`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sid })
+                    });
+                } catch (e) { /* no-op */ }
             }
 
             // Reset all session IDs and caches
@@ -894,10 +1004,12 @@
 
             chatArea.innerHTML = '';
             closeOverlay.classList.add('visible');
+            closeOverlay.setAttribute('aria-hidden', 'false');
         }
 
         function reopenInterface() {
             closeOverlay.classList.remove('visible');
+            closeOverlay.setAttribute('aria-hidden', 'true');
             addJeffMessage(welcomeMessages[currentMode]);
             inputField.focus();
         }
@@ -911,6 +1023,24 @@
 
         // Send button
         sendBtn.addEventListener('click', sendMessage);
+
+        chatArea.addEventListener('click', async (event) => {
+            const button = event.target.closest('.export-btn');
+            if (!button) return;
+
+            const message = button.closest('.message');
+            const text = message?.dataset.exportText || message?.querySelector('.message-bubble')?.innerText || '';
+            const exportType = button.dataset.export;
+            button.disabled = true;
+            try {
+                if (exportType === 'xlsx') await downloadExport('/export/xlsx', 'xlsx', text);
+                if (exportType === 'pdf') await downloadExport('/export/pdf', 'pdf', text);
+            } catch (error) {
+                console.warn(error.message);
+            } finally {
+                button.disabled = false;
+            }
+        });
 
         // Enter key sends (without Shift)
         inputField.addEventListener('keydown', (e) => {
