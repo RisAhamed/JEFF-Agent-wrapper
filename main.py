@@ -6,7 +6,6 @@ import re
 import subprocess
 import time
 from typing import Any
-
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -113,15 +112,15 @@ async def startup_event() -> None:
         return
 
     node_cmd = "node.exe" if os.name == "nt" else "node"
-    npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
     compiled_server = os.path.join(BASE_DIR, "dist", "server.js")
 
-    if os.path.exists(compiled_server):
-        runner = [node_cmd, compiled_server]
-    else:
-        runner = [npm_cmd, "run", "dev"]
+    if not os.path.exists(compiled_server):
+        raise RuntimeError(
+            f"Compiled sidecar not found at {compiled_server}. "
+            "Run 'npm run build' before starting the server."
+        )
 
-    node_process = subprocess.Popen(runner, cwd=BASE_DIR)
+    node_process = subprocess.Popen([node_cmd, compiled_server], cwd=BASE_DIR)
     await _wait_for_sidecar()
 
 

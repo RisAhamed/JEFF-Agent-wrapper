@@ -5,15 +5,21 @@
 
 set -e
 
+echo "[start.sh] Checking for compiled sidecar at dist/server.js..."
+if [ ! -f "dist/server.js" ]; then
+  echo "[start.sh] ERROR: dist/server.js not found. Did tsc run? Listing dist/:"
+  ls -la dist/ 2>/dev/null || echo "[start.sh] dist/ directory does not exist"
+  echo "[start.sh] Listing root directory .ts files:"
+  ls -la *.ts 2>/dev/null || echo "[start.sh] No .ts files found"
+  exit 1
+fi
+
 echo "[start.sh] Starting Node sidecar (dist/server.js) on port ${SIDECAR_PORT:-3000}..."
 node dist/server.js &
 NODE_PID=$!
 
-# Give the sidecar a moment to bind
-sleep 1
+# Give the sidecar time to bind the port
+sleep 2
 
 echo "[start.sh] Starting FastAPI (uvicorn) on port $PORT..."
-uvicorn main:app --host 0.0.0.0 --port "$PORT"
-
-# If uvicorn exits, clean up the sidecar
-kill $NODE_PID 2>/dev/null || true
+exec uvicorn main:app --host 0.0.0.0 --port "$PORT"

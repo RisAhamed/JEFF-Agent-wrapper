@@ -137,6 +137,6 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Node Agent Sidecar running on port ${port}`);
+app.listen(port, '127.0.0.1', () => {
+  console.log(`Node Agent Sidecar running on 127.0.0.1:${port}`);
 });
