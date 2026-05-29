@@ -28,6 +28,7 @@ load_dotenv(os.path.join(os.path.dirname(BASE_DIR), ".env"), override=False)
 VALID_MODES = {"investor", "business_model", "customer", "campaign_builder", "financial"}
 TOKEN_LIMIT = int(os.getenv("PRO_TOKEN_LIMIT", "150000"))
 TOKEN_WINDOW_SECONDS = 24 * 60 * 60
+SESSION_TTL_SECONDS = 2 * 60 * 60  # 2-hour session expiry
 SIDECAR_URL = os.getenv("NODE_SIDECAR_URL", "http://127.0.0.1:3000")
 
 app = FastAPI(
@@ -61,7 +62,10 @@ app.add_middleware(
 )
 
 node_process: subprocess.Popen | None = None
+# TODO: replace dict with Redis for multi-instance production
 session_store: dict[str, InMemoryChatMessageHistory] = {}
+session_timestamps: dict[str, float] = {}  # last-access time per session
+# TODO: replace dict with Redis for multi-instance production
 token_usage_store: dict[str, list[tuple[float, int]]] = {}
 
 
@@ -128,8 +132,15 @@ def shutdown_event() -> None:
 
 
 def get_session_history(session_id: str) -> InMemoryChatMessageHistory:
+    now = time.time()
+    # Expire sessions older than SESSION_TTL_SECONDS (2 hours)
+    last_access = session_timestamps.get(session_id, 0)
+    if session_id in session_store and (now - last_access) > SESSION_TTL_SECONDS:
+        del session_store[session_id]
+        del session_timestamps[session_id]
     if session_id not in session_store:
         session_store[session_id] = InMemoryChatMessageHistory()
+    session_timestamps[session_id] = now
     return session_store[session_id]
 
 
