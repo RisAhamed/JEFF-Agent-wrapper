@@ -280,7 +280,17 @@ def pdf_elements(payload: Any, title: str) -> list[Any]:
     return elements
 
 
+@app.get("/chat")
+@app.get("/chat/")
+async def chat_get():
+    raise HTTPException(
+        status_code=405,
+        detail="Method Not Allowed. The /chat endpoint requires a POST request with a JSON payload (e.g., {'message': '...', 'mode': '...', 'session_id': '...'})."
+    )
+
+
 @app.post("/chat")
+@app.post("/chat/")
 async def chat(request: ChatRequest):
     if request.mode not in VALID_MODES:
         raise HTTPException(
@@ -356,7 +366,17 @@ async def chat(request: ChatRequest):
     return StreamingResponse(stream_response(), media_type="text/plain", headers=headers)
 
 
+@app.get("/export/xlsx")
+@app.get("/export/xlsx/")
+async def export_xlsx_get():
+    raise HTTPException(
+        status_code=405,
+        detail="Method Not Allowed. The /export/xlsx endpoint requires a POST request with a JSON payload (e.g., {'payload': ..., 'filename': '...'})."
+    )
+
+
 @app.post("/export/xlsx")
+@app.post("/export/xlsx/")
 async def export_xlsx(request: ExportRequest):
     payload = export_payload(request)
     wb = Workbook()
@@ -376,7 +396,17 @@ async def export_xlsx(request: ExportRequest):
     )
 
 
+@app.get("/export/pdf")
+@app.get("/export/pdf/")
+async def export_pdf_get():
+    raise HTTPException(
+        status_code=405,
+        detail="Method Not Allowed. The /export/pdf endpoint requires a POST request with a JSON payload (e.g., {'payload': ..., 'filename': '...'})."
+    )
+
+
 @app.post("/export/pdf")
+@app.post("/export/pdf/")
 async def export_pdf(request: ExportRequest):
     payload = export_payload(request)
     output = io.BytesIO()
@@ -394,6 +424,7 @@ async def export_pdf(request: ExportRequest):
 
 
 @app.post("/clear")
+@app.post("/clear/")
 async def clear_session(request: Request):
     data = await request.json()
     session_id = data.get("session_id")
@@ -403,6 +434,7 @@ async def clear_session(request: Request):
 
 
 @app.get("/health")
+@app.get("/health/")
 async def health_check():
     sidecar_ready = await _sidecar_is_ready()
     return {"status": "ok", "service": "Jeff AI Agent", "sidecar": "ok" if sidecar_ready else "unavailable"}
