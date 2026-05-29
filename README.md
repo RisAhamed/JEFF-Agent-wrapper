@@ -1,50 +1,32 @@
 # JEFF Agent Wrapper
 
-The **JEFF Agent Wrapper** is a FastAPI gateway proxy designed to orchestrate and interface with a persistent Node.js agent execution sidecar. It manages cross-origin access (CORS), handles sliding-session memory, enforces rolling token caps, and parses structured data to generate downloadable PDF and Excel reports.
+The **JEFF Agent Wrapper** is a FastAPI gateway proxy designed to interface with a persistent Node.js agent execution sidecar. It manages cross-origin access (CORS), handles sliding-session memory, enforces rolling token caps, and parses structured data to generate downloadable PDF and Excel reports.
 
 - **Production API Playground**: [https://jeff-agent-wrapper.onrender.com/](https://jeff-agent-wrapper.onrender.com/)
 
 ---
 
-## System Overview & Features
+## Mechanism & Architecture
 
-### 1. Persistent Sidecar Integration
-The application uses a dual-process runner (`start.sh`) that spins up the TypeScript-compiled sidecar on `127.0.0.1:3000` (internal only) and binds the FastAPI app to the public port.
-- Communicates internally over HTTP on localhost, eliminating subprocess startup overhead on chat requests.
-- Raises a hard error immediately during startup if `dist/server.js` compilation is missing.
+The application uses a **FastAPI Proxy + Node.js Sidecar** design pattern:
+1. **Client Request**: The client sends a `POST /chat` request to the FastAPI app (Port 8000).
+2. **FastAPI Layer**: FastAPI verifies the user's rolling 24-hour token quota and loads the conversation history from memory. It compiles the request and calls the internal Node.js sidecar (Port 3000) over local HTTP.
+3. **Node.js Sidecar**: The Express sidecar processes the user query using the `@openai/agents` SDK, first passing the prompt through `@openai/guardrails` to check for PII, NSFW, and prompt injection. If guardrails are triggered, it routes the message to the restricted Informer agent; otherwise, it queries the main Jeff agent.
+4. **Streaming Response**: The sidecar outputs streaming NDJSON tokens to FastAPI, which flushes them immediately to the client as a text stream. Upon turn completion, the sidecar returns the final token usage statistics to update the quota ledger.
 
-### 2. Token-Streaming Engine
-- Delivers real-time token-by-token text streams over TCP via Line-Delimited JSON (NDJSON) chunks.
-- Reads sidecar events via `StreamingResponse` and streams directly to the frontend.
+---
 
-### 3. Session Sliding Memory (2-Hour TTL)
-- Chat histories are keyed by `session_id` and preserved across requests.
-- Sessions automatically expire and are cleaned up after **2 hours** of inactivity to optimize RAM usage.
-- *Note:* In-memory storage is used for development; Redis is required for multi-instance production.
+## Model Configuration
 
-### 4. Mode Routing & Guardrail Pipeline
-- Supports five modes: `investor`, `business_model`, `customer`, `campaign_builder`, and `financial`.
-- Automatically scrubs and checks input prompts against active guardrails. Flagged inputs are automatically rerouted to a restrictive Informer agent.
-
-### 5. Excel and PDF Export Endpoints
-- Converts structured payload JSON or text arrays into downloadable reports server-side.
-- **Excel (`POST /export/xlsx`)**: Uses `openpyxl` to compile data rows.
-- **PDF (`POST /export/pdf`)**: Uses `reportlab` to construct styled flowable layouts.
-
-### 6. 24-Hour Token Limit (150,000 Token Cap)
-- Pro users are capped at a rolling **150,000 tokens per 24 hours**.
-- Returns a standard `429 Too Many Requests` status with a `Retry-After` header when the cap is exceeded.
-- Reports consumption and remaining limit balances in the HTTP headers (`X-Tokens-Remaining`, `X-Tokens-Reset`, `X-Session-Id`).
+This system integrates with OpenAI API models configured via environment variables:
+- **Core Agent Executions**: Configured to run on **`gpt-3.5-turbo`** (customizable via `JEFF_AGENT_MODEL` and `INFORMER_AGENT_MODEL` env vars).
+- **Guardrails Moderation & Jailbreak Checks**: Configured to run on **`gpt-4.1-mini`** for high-performance classification.
 
 ---
 
 ## How to Test
 
-### 1. Live Playground
-Interact with the frontend UI directly in your web browser:
-👉 [https://jeff-agent-wrapper.onrender.com/](https://jeff-agent-wrapper.onrender.com/)
-
-### 2. API Verification Commands
+### 1. Verification Commands
 
 #### A. Health Check
 ```bash
@@ -60,42 +42,56 @@ curl -X GET https://jeff-agent-wrapper.onrender.com/health
 ```
 
 #### B. Streaming Chat Request (POST /chat)
-**Test Input:** `"I want to launch a SaaS startup, give me a quick campaign hook."`
+**Gold Input:** `"I want to launch a SaaS startup, give me a quick campaign hook."`
 ```bash
 curl -X POST https://jeff-agent-wrapper.onrender.com/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "I want to launch a SaaS startup, give me a quick campaign hook.", "mode": "campaign_builder"}'
 ```
-*Expected Behavior:*
-- Returns quota statistics headers (e.g. `X-Tokens-Remaining`, `X-Session-Id`).
-- Streams real-time markdown text chunk-by-chunk.
+*Expected Behavior:* Response body streams markdown text chunk-by-chunk while returning `X-Tokens-Remaining` headers.
 
 #### C. Spreadsheet Export (POST /export/xlsx)
 ```bash
 curl -X POST https://jeff-agent-wrapper.onrender.com/export/xlsx \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"summary": "Q1 Financial Projection", "rows": [{"month": "Jan", "revenue": 10000, "burn": 4000}, {"month": "Feb", "revenue": 12000, "burn": 4500}]}, "filename": "financial-projection"}' \
-  --output financial-projection.xlsx
+  -d '{"payload": {"summary": "Q1 Financial Projection", "rows": [{"month": "Jan", "revenue": 10000, "burn": 4000}]}, "filename": "projection"}' \
+  --output projection.xlsx
 ```
-*Expected Result:* Downloads a valid Excel spreadsheet containing the formatted columns.
 
 #### D. PDF Report Export (POST /export/pdf)
 ```bash
 curl -X POST https://jeff-agent-wrapper.onrender.com/export/pdf \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"title": "Campaign Launch Plan", "sections": [{"header": "Audience", "text": "Tech builders."}]}, "filename": "launch-plan"}' \
-  --output launch-plan.pdf
+  -d '{"payload": {"title": "Campaign Launch Plan", "sections": [{"header": "Audience", "text": "Tech builders."}]}, "filename": "plan"}' \
+  --output plan.pdf
 ```
-*Expected Result:* Generates and downloads a clean, styled PDF report.
 
-#### E. GET Route Fallback
-Verify the POST-only routes return descriptive developer feedback instead of generic 405 errors:
+#### E. Direct GET Fallback Error Check
 ```bash
 curl -X GET https://jeff-agent-wrapper.onrender.com/chat
 ```
-*Expected Response:*
-```json
-{
-  "detail": "Method Not Allowed. The /chat endpoint requires a POST request with a JSON payload (e.g., {'message': '...', 'mode': '...', 'session_id': '...'})."
-}
-```
+*Expected Response:* Returns a helpful JSON body explaining the required `POST` JSON format.
+
+---
+
+## Project Status
+
+### What's Done
+- **Dual-Process Daemon**: Setup `start.sh` and updated `render.yaml` to ensure both FastAPI and the Express sidecar launch automatically in production.
+- **NDJSON Stream Piping**: Replaced simulated streaming with native `StreamedRunResult` token piping.
+- **Quotas & Memory**: Implemented a rolling 24-hour limit of 150,000 tokens per user and a 2-hour inactivity sliding TTL for session histories.
+- **Export Pipeline**: Server-side Excel (`openpyxl`) and PDF (`reportlab`) file generation are fully active.
+- **Campaign Builder Rename**: Updated the frontend and backend modes from `pitch_deck` to `campaign_builder`.
+
+### What's Pending & Known Limitations
+- **Scaling Persistence**: Quota ledger and session history are currently stored in-memory. **Needs Redis** for multi-instance production environments.
+- **System Prompts**: OpenAI system prompts for Campaign Builder are managed on the OpenAI platform dashboard, not inside this repository.
+
+### Known-Broken
+- None. (All endpoints are fully operational).
+
+### What We Tested & How
+- **Health Checks**: Verified that `/health` resolves with both FastAPI and sidecar active.
+- **Chat Endpoints**: Confirmed stream responses, CORS origin rules, and header returns locally and on the live Render environment.
+- **Quota Enforcements**: Validated `429` status responses and header balance deductions.
+- **File Exports**: Checked downloaded `.xlsx` and `.pdf` files locally to ensure columns and styles compile correctly.
