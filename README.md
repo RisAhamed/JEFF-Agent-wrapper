@@ -1,63 +1,51 @@
 # JEFF Agent Wrapper
 
-This repository contains the FastAPI wrapper around the persistent Node.js OpenAI agent sidecar.
+The **JEFF Agent Wrapper** is a FastAPI gateway proxy interfacing with a persistent Node.js OpenAI agent sidecar. It manages cross-origin access (CORS), handles sliding-session memory, enforces rolling token caps, and parses structured data to generate downloadable PDF and Excel reports.
 
-- **Live Deployment Link**: [https://jeff-agent-wrapper.onrender.com/](https://jeff-agent-wrapper.onrender.com/)
-
----
-
-## 1. What Was Wrong
-
-1. **Sidecar Process Crash in Production**: 
-   - Render only launched the Python FastAPI server (`uvicorn main:app`). The TypeScript/Node.js sidecar was never started.
-   - The fallback path in `main.py` tried to spawn the sidecar using `tsx` (which is in `devDependencies`), triggering an `exit code 127` (command not found) crash.
-2. **Generic 405 Method Not Allowed**:
-   - Hitting `/chat` or export routes using `GET` (such as opening the URL directly in a browser address bar) returned a generic `{"detail":"Method Not Allowed"}`.
-   - Additionally, requests with trailing slashes (e.g. `/chat/`) triggered HTTP-to-HTTPS redirects, causing some HTTP clients to convert the request method to `GET` and fail with a 405 error.
+- **Production API Playground**: [https://jeff-agent-wrapper.onrender.com/](https://jeff-agent-wrapper.onrender.com/)
 
 ---
 
-## 2. What We Did & How We Fixed It
+## What Changed
 
-1. **Dual-Process Launcher (`start.sh`)**:
-   - Created `start.sh` to run the compiled Node sidecar in the background (`node dist/server.js &`) and then execute the FastAPI server in the foreground.
-   - Changed the start command in `render.yaml` to `bash start.sh`.
-   - Bound the Node.js Express sidecar to `127.0.0.1` so it remains internal-only.
-2. **Trailing-Slash Routing Support**:
-   - Registered stacked decorators on all endpoints (e.g., both `@app.post("/chat")` and `@app.post("/chat/")`) to process both URLs natively without redirection.
-3. **Friendly GET Error Handlers**:
-   - Added specific `GET` route handlers for the POST-only endpoints (`/chat`, `/export/xlsx`, `/export/pdf`) that raise a helpful exception indicating that a `POST` request with JSON payload is required.
-4. **Session TTL (2-Hour Expiry)**:
-   - Added `session_timestamps` to track user accesses in `main.py`. Any sessions inactive for more than 2 hours are automatically cleaned up in `get_session_history()`.
-
----
-
-## 3. Current Live Deployment Features
-
-- **Real Token Streaming**: Token-by-token streaming is enabled on the `/chat` route.
-- **Modes Supported**: `investor`, `business_model`, `customer`, `campaign_builder` (renamed from pitch_deck), and `financial`.
-- **Pro Quota System**: A rolling 24-hour limit of 150,000 tokens is tracked and returned in the HTTP response headers:
-  - `X-Session-Id`
-  - `X-Tokens-Limit`
-  - `X-Tokens-Remaining`
-  - `X-Tokens-Reset`
-- **File Exports**: `/export/xlsx` (Excel using openpyxl) and `/export/pdf` (PDF using reportlab) are fully active.
+1. **Robust Double-Route Matching (Trailing Slashes)**:
+   - Configured stacked route decorators for all main endpoints (supporting both `/chat` and `/chat/`, `/export/xlsx` and `/export/xlsx/`, etc.). This stops HTTP clients from encountering `GET`-redirect degradation and returning 405 errors.
+2. **Self-Documenting GET Fallbacks**:
+   - Implemented custom `GET` exception handlers for POST-only endpoints. If someone tries to open the endpoints directly in a web browser, they receive clear JSON instructions on the required body structure rather than a generic 405 error.
+3. **Automated Dual-Process Launcher**:
+   - Integrated a startup wrapper (`start.sh`) that spins up the TypeScript-compiled sidecar on `127.0.0.1:3000` (internal only) and binds the FastAPI app to the public port.
+4. **Session Sliding Memory Expiry (TTL)**:
+   - Configured an automatic 2-hour inactivity cleanup window for message histories.
+5. **Pro Token Quota System**:
+   - Set a rolling 24-hour limit of 150,000 tokens for Pro users, returning limit and remaining token stats in response headers.
 
 ---
 
-## 4. How to Test
+## Core Features (Fully Functional)
 
-### Live Interface
-Visit the root URL in a web browser to use the interactive playground:
+- **Real-Time Streaming**: Delivers token-by-token text streams over TCP via Line-Delimited JSON (NDJSON) chunks.
+- **Dynamic Exports**: Converts structured data JSON arrays or raw text into format-aligned reports (.xlsx and .pdf).
+- **Guardrail Protection**: Moderates user queries against PII leak, NSFW, and prompt injection tripwires, automatically rerouting flagged prompts to a restricted Informer agent.
+
+---
+
+## How to Test
+
+### 1. Interactive Interface
+You can load the playground and converse with the agent directly in your web browser:
 👉 [https://jeff-agent-wrapper.onrender.com/](https://jeff-agent-wrapper.onrender.com/)
 
-### Smoke Tests & curl Output
+---
 
-#### 1. Check Service Health
+### 2. "Gold" Test Prompts & API Commands
+
+Here are the specific test inputs used to verify streaming, reasoning, and document generation:
+
+#### A. Health Check
 ```bash
 curl -X GET https://jeff-agent-wrapper.onrender.com/health
 ```
-**Response:**
+*Expected Response:*
 ```json
 {
   "status": "ok",
@@ -66,28 +54,43 @@ curl -X GET https://jeff-agent-wrapper.onrender.com/health
 }
 ```
 
-#### 2. Test Chat Endpoint (Returns Streamed Response)
+#### B. Streaming Chat Request ("Gold Prompt" for Campaign Builder Mode)
+**Prompt Input:** `"I want to launch a SaaS startup, give me a quick campaign hook."`
 ```bash
 curl -X POST https://jeff-agent-wrapper.onrender.com/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello Jeff", "mode": "campaign_builder"}'
+  -d '{"message": "I want to launch a SaaS startup, give me a quick campaign hook.", "mode": "campaign_builder"}'
 ```
-**Response Headers:**
-```http
-HTTP/1.1 200 OK
-Content-Type: text/plain; charset=utf-8
-X-Session-Id: default_session
-X-Tokens-Limit: 150000
-X-Tokens-Remaining: 150000
-X-Tokens-Reset: 1779951600
-```
-*(Response body streams the tokens real-time)*
+*Expected Behavior:*
+- Response headers return `X-Tokens-Remaining` (e.g. `149810`) and `X-Session-Id`.
+- Response body streams campaign content word-by-word.
 
-#### 3. Test Direct GET Browser Message
+#### C. Spreadsheet Export Verification (POST /export/xlsx)
+**Payload Data:** Passing structured revenue and expense metrics.
+```bash
+curl -X POST https://jeff-agent-wrapper.onrender.com/export/xlsx \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"summary": "Q1 Financial Projection", "rows": [{"month": "Jan", "revenue": 10000, "burn": 4000}, {"month": "Feb", "revenue": 12000, "burn": 4500}, {"month": "Mar", "revenue": 15000, "burn": 5000}]}, "filename": "financial-projection"}' \
+  --output financial-projection.xlsx
+```
+*Expected Result:* Successfully downloads `financial-projection.xlsx` containing formatted columns with the specified financial figures.
+
+#### D. PDF Report Export Verification (POST /export/pdf)
+**Payload Data:** Passing structured textual analysis or project briefs.
+```bash
+curl -X POST https://jeff-agent-wrapper.onrender.com/export/pdf \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"title": "Campaign Launch Plan", "sections": [{"header": "Audience", "text": "Tech founders and solo builders."}, {"header": "Budget", "text": "Targeting $2,000 monthly burn."}]}, "filename": "launch-plan"}' \
+  --output launch-plan.pdf
+```
+*Expected Result:* Successfully generates and downloads a clean, styled `launch-plan.pdf` document.
+
+#### E. GET Route Fallback Check
+Verify that requesting `/chat` without `POST` returns the descriptive developer instructions:
 ```bash
 curl -X GET https://jeff-agent-wrapper.onrender.com/chat
 ```
-**Response:**
+*Expected Response:*
 ```json
 {
   "detail": "Method Not Allowed. The /chat endpoint requires a POST request with a JSON payload (e.g., {'message': '...', 'mode': '...', 'session_id': '...'})."
